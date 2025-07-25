@@ -13,13 +13,22 @@ function App() {
   const audioConfigRef = useRef(null);
 
   const startRecording = async () => {
+    // Check if environment variables are loaded
+    const speechKey = process.env.REACT_APP_AZURE_SPEECH_KEY;
+    const speechRegion = process.env.REACT_APP_AZURE_SPEECH_REGION;
+    
+    if (!speechKey || !speechRegion) {
+      setStatus('❌ Azure Speech keys not configured. Check environment variables.');
+      console.error('Missing speech configuration:', { speechKey: !!speechKey, speechRegion: !!speechRegion });
+      return;
+    }
+
     try {
-      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(
-        process.env.REACT_APP_AZURE_SPEECH_KEY,
-        process.env.REACT_APP_AZURE_SPEECH_REGION
-      );
+      setStatus('🔧 Requesting microphone access...');
       
+      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
       speechConfig.speechRecognitionLanguage = 'en-US';
+      
       audioConfigRef.current = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
       recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
 
@@ -33,23 +42,41 @@ function App() {
         }
       };
 
-      recognizerRef.current.startContinuousRecognitionAsync();
-      setIsRecording(true);
-      setStatus('🔴 Recording... Speak now');
+      recognizerRef.current.startContinuousRecognitionAsync(
+        () => {
+          setIsRecording(true);
+          setStatus('🔴 Recording... Speak now');
+        },
+        (error) => {
+          console.error('Recognition start error:', error);
+          setStatus('❌ Microphone access denied or unavailable');
+        }
+      );
       
     } catch (error) {
-      console.error('Recording error:', error);
-      setStatus('❌ Recording failed. Check microphone permissions.');
+      console.error('Recording setup error:', error);
+      setStatus('❌ Recording failed: ' + error.message);
     }
   };
 
   const stopRecording = () => {
     if (recognizerRef.current) {
-      recognizerRef.current.stopContinuousRecognitionAsync();
+      recognizerRef.current.stopContinuousRecognitionAsync(
+        () => {
+          setIsRecording(false);
+          setStatus('✅ Recording complete');
+        },
+        (error) => {
+          console.error('Stop recording error:', error);
+          setIsRecording(false);
+          setStatus('⚠️ Recording stopped with error');
+        }
+      );
       recognizerRef.current = null;
+    } else {
+      setIsRecording(false);
+      setStatus('✅ Recording complete');
     }
-    setIsRecording(false);
-    setStatus('✅ Recording complete');
   };
 
   const generateMedicalNotes = async () => {
@@ -58,12 +85,22 @@ function App() {
       return;
     }
 
+    // Check OpenAI configuration
+    const openaiEndpoint = process.env.REACT_APP_AZURE_OPENAI_ENDPOINT;
+    const openaiKey = process.env.REACT_APP_AZURE_OPENAI_KEY;
+    const deployment = process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT;
+
+    if (!openaiEndpoint || !openaiKey || !deployment) {
+      setStatus('❌ Azure OpenAI not configured. Check environment variables.');
+      return;
+    }
+
     setIsProcessing(true);
     setStatus('🤖 AI generating medical notes...');
 
     try {
       const response = await axios.post(
-        `${process.env.REACT_APP_AZURE_OPENAI_ENDPOINT}openai/deployments/${process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${process.env.REACT_APP_AZURE_OPENAI_API_VERSION}`,
+        `${openaiEndpoint}openai/deployments/${deployment}/chat/completions?api-version=${process.env.REACT_APP_AZURE_OPENAI_API_VERSION}`,
         {
           messages: [
             {
@@ -81,7 +118,7 @@ function App() {
         {
           headers: {
             'Content-Type': 'application/json',
-            'api-key': process.env.REACT_APP_AZURE_OPENAI_KEY
+            'api-key': openaiKey
           }
         }
       );
@@ -92,7 +129,7 @@ function App() {
     } catch (error) {
       console.error('AI generation error:', error);
       setStatus('❌ Failed to generate notes. Check Azure OpenAI configuration.');
-      setMedicalNotes('Error generating notes. Please try again.');
+      setMedicalNotes('Error generating notes: ' + (error.response?.data?.error?.message || error.message));
     } finally {
       setIsProcessing(false);
     }
