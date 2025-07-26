@@ -108,31 +108,50 @@ function App() {
 
   const startRecording = async () => {
     const speechKey = process.env.REACT_APP_AZURE_SPEECH_KEY;
-    const speechRegion = process.env.REACT_APP_AZURE_SPEECH_REGION;
+   const startRecording = async () => {
+  // TEMPORARY: Hard-code your Speech Service key here to test
+  const speechKey = "YOUR_SPEECH_KEY_HERE";  // Paste your actual key here
+  const speechRegion = "eastus";
+  
+  setStatus('🔧 Testing with hard-coded keys...');
+  
+  try {
+    // Request microphone permission first
+    await navigator.mediaDevices.getUserMedia({ audio: true });
     
-    if (!speechKey || !speechRegion) {
-      setStatus('❌ Azure Speech keys not configured. Check environment variables.');
-      return;
-    }
+    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
+    speechConfig.speechRecognitionLanguage = 'en-US';
+    
+    audioConfigRef.current = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+    recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
 
-    try {
-      setStatus('🔧 Requesting microphone access...');
-      
-      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
-      speechConfig.speechRecognitionLanguage = 'en-US';
-      
-      audioConfigRef.current = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
-      recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
-
-      recognizerRef.current.recognizing = (s, e) => {
+    recognizerRef.current.recognizing = (s, e) => {
+      if (e.result.text) {
         setTranscript(prev => prev + ' ' + e.result.text);
-      };
+      }
+    };
 
-      recognizerRef.current.recognized = (s, e) => {
-        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
-          setTranscript(prev => prev + ' ' + e.result.text);
-        }
-      };
+    recognizerRef.current.recognized = (s, e) => {
+      if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
+        setTranscript(prev => prev + ' ' + e.result.text);
+      }
+    };
+
+    recognizerRef.current.startContinuousRecognitionAsync(
+      () => {
+        setIsRecording(true);
+        setStatus('🔴 Recording with hard-coded keys - IT WORKS!');
+      },
+      (error) => {
+        console.error('Recognition error:', error);
+        setStatus(`❌ Speech SDK error: ${error}`);
+      }
+    );
+    
+  } catch (error) {
+    setStatus(`❌ Microphone or Speech error: ${error.message}`);
+  }
+};
 
       recognizerRef.current.startContinuousRecognitionAsync(
         () => {
