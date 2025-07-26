@@ -6,6 +6,7 @@ function App() {
   // Recording states
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [medicalNotes, setMedicalNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState('Ready to record - Configure API settings first');
@@ -179,14 +180,17 @@ function App() {
       recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
 
       recognizerRef.current.recognizing = (s, e) => {
+        // Show interim results without adding to final transcript
         if (e.result.text) {
-          setTranscript(prev => prev + ' ' + e.result.text);
+          setInterimTranscript(e.result.text);
         }
       };
 
       recognizerRef.current.recognized = (s, e) => {
-        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
-          setTranscript(prev => prev + ' ' + e.result.text);
+        // Only add final recognized speech to transcript
+        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text.trim()) {
+          setTranscript(prev => prev + (prev ? ' ' : '') + e.result.text.trim());
+          setInterimTranscript(''); // Clear interim text after final recognition
         }
       };
 
@@ -224,17 +228,20 @@ function App() {
       recognizerRef.current.stopContinuousRecognitionAsync(
         () => {
           setIsRecording(false);
+          setInterimTranscript(''); // Clear any remaining interim text
           setStatus('✅ Recording complete');
         },
         (error) => {
           console.error('Stop recording error:', error);
           setIsRecording(false);
+          setInterimTranscript(''); // Clear interim text on error too
           setStatus('⚠️ Recording stopped with error');
         }
       );
       recognizerRef.current = null;
     } else {
       setIsRecording(false);
+      setInterimTranscript('');
       setStatus('✅ Recording complete');
     }
   };
@@ -350,6 +357,7 @@ Please convert this into structured medical notes following the specified format
 
   const clearCurrentSession = () => {
     setTranscript('');
+    setInterimTranscript('');
     setMedicalNotes('');
     setStatus('Ready to record');
   };
@@ -689,7 +697,18 @@ Please convert this into structured medical notes following the specified format
       <div className="transcript-section">
         <h3>📋 Live Transcript</h3>
         <div className="transcript-text">
-          {transcript || 'Transcript will appear here as you speak...'}
+          {transcript || interimTranscript ? (
+            <span>
+              {transcript}
+              {interimTranscript && (
+                <span style={{color: '#888', fontStyle: 'italic'}}>
+                  {transcript ? ' ' : ''}{interimTranscript}
+                </span>
+              )}
+            </span>
+          ) : (
+            'Transcript will appear here as you speak...'
+          )}
         </div>
       </div>
 
