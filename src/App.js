@@ -8,7 +8,7 @@ function App() {
   const [transcript, setTranscript] = useState('');
   const [medicalNotes, setMedicalNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [status, setStatus] = useState('Ready to record');
+  const [status, setStatus] = useState('Ready to record - Configure API settings first');
   
   // Patient management states
   const [patients, setPatients] = useState([]);
@@ -40,7 +40,7 @@ function App() {
   const recognizerRef = useRef(null);
   const audioConfigRef = useRef(null);
 
-  // Load data from localStorage on app start (with error handling)
+  // Load data from localStorage on app start
   useEffect(() => {
     try {
       const savedPatients = localStorage.getItem('medicalScribePatients');
@@ -56,14 +56,19 @@ function App() {
       }
       
       if (savedApiSettings) {
-        setApiSettings(JSON.parse(savedApiSettings));
+        const settings = JSON.parse(savedApiSettings);
+        setApiSettings(settings);
+        // Update status if API keys are configured
+        if (settings.speechKey && settings.openaiKey) {
+          setStatus('Ready to record');
+        }
       }
     } catch (error) {
       console.warn('LocalStorage not available, using memory storage');
     }
   }, []);
 
-  // Save patients to localStorage (with error handling)
+  // Save patients to localStorage
   const savePatients = (updatedPatients) => {
     setPatients(updatedPatients);
     try {
@@ -73,7 +78,7 @@ function App() {
     }
   };
 
-  // Save AI preferences (with error handling)
+  // Save AI preferences
   const savePreferences = (prefs) => {
     setAiPreferences(prefs);
     try {
@@ -83,7 +88,7 @@ function App() {
     }
   };
 
-  // Save API settings (with error handling)
+  // Save API settings
   const saveApiSettings = (settings) => {
     setApiSettings(settings);
     try {
@@ -146,16 +151,26 @@ function App() {
   };
 
   const startRecording = async () => {
-    const speechKey = process.env.REACT_APP_AZURE_SPEECH_KEY;
-    const speechRegion = process.env.REACT_APP_AZURE_SPEECH_REGION;
+    // Check API settings - NO environment variables
+    const speechKey = apiSettings.speechKey;
+    const speechRegion = apiSettings.speechRegion;
     
     if (!speechKey || !speechRegion) {
-      setStatus('❌ Azure Speech keys not configured. Check environment variables.');
+      setStatus('❌ Please configure Azure Speech settings first (click 🔧 API Settings)');
+      setShowSettings(true);
       return;
     }
 
     try {
       setStatus('🔧 Requesting microphone access...');
+      
+      // Request microphone permission explicitly
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (permError) {
+        setStatus('❌ Microphone permission denied. Please allow microphone access.');
+        return;
+      }
       
       const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
       speechConfig.speechRecognitionLanguage = 'en-US';
@@ -164,13 +179,20 @@ function App() {
       recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
 
       recognizerRef.current.recognizing = (s, e) => {
-        setTranscript(prev => prev + ' ' + e.result.text);
+        if (e.result.text) {
+          setTranscript(prev => prev + ' ' + e.result.text);
+        }
       };
 
       recognizerRef.current.recognized = (s, e) => {
-        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
           setTranscript(prev => prev + ' ' + e.result.text);
         }
+      };
+
+      recognizerRef.current.sessionStopped = () => {
+        setIsRecording(false);
+        setStatus('✅ Recording session ended');
       };
 
       recognizerRef.current.startContinuousRecognitionAsync(
@@ -180,13 +202,20 @@ function App() {
         },
         (error) => {
           console.error('Recognition start error:', error);
-          setStatus('❌ Microphone access denied or unavailable');
+          setIsRecording(false);
+          if (error.toString().includes('1006')) {
+            setStatus('❌ Invalid Speech key. Check your Azure Speech Service key in API Settings.');
+          } else if (error.toString().includes('1007')) {
+            setStatus('❌ Speech service quota exceeded or region mismatch. Check API Settings.');
+          } else {
+            setStatus(`❌ Recording failed: ${error}`);
+          }
         }
       );
       
     } catch (error) {
       console.error('Recording setup error:', error);
-      setStatus('❌ Recording failed: ' + error.message);
+      setStatus(`❌ Setup failed: ${error.message}`);
     }
   };
 
@@ -216,14 +245,14 @@ function App() {
       return;
     }
 
-    // Use stored API settings
+    // Check API settings - NO environment variables
     const openaiEndpoint = apiSettings.openaiEndpoint;
     const openaiKey = apiSettings.openaiKey;
     const deployment = apiSettings.openaiDeployment;
     const apiVersion = apiSettings.openaiApiVersion;
 
     if (!openaiEndpoint || !openaiKey || !deployment) {
-      setStatus('❌ Please configure Azure OpenAI settings first (click ⚙️ API Settings)');
+      setStatus('❌ Please configure Azure OpenAI settings first (click 🔧 API Settings)');
       setShowSettings(true);
       return;
     }
@@ -309,6 +338,8 @@ Please convert this into structured medical notes following the specified format
         setStatus('❌ OpenAI authentication failed. Check your API key in settings.');
       } else if (error.response?.status === 404) {
         setStatus('❌ OpenAI deployment not found. Check your deployment name in settings.');
+      } else if (error.response?.status === 429) {
+        setStatus('❌ OpenAI rate limit exceeded. Wait a moment and try again.');
       } else {
         setStatus('❌ Failed to generate notes: ' + (error.response?.data?.error?.message || error.message));
       }
@@ -567,7 +598,11 @@ Please convert this into structured medical notes following the specified format
             </div>
             
             <button 
-              onClick={() => {saveApiSettings(apiSettings); setShowSettings(false); setStatus('✅ API settings saved successfully');}}
+              onClick={() => {
+                saveApiSettings(apiSettings); 
+                setShowSettings(false); 
+                setStatus('✅ API settings saved successfully - Ready to record');
+              }}
               className="btn" 
               style={{backgroundColor: '#27ae60', color: 'white', marginRight: '10px'}}
             >
