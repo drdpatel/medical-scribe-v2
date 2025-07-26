@@ -177,12 +177,14 @@ function App() {
       return;
     }
 
-    const openaiEndpoint = process.env.REACT_APP_AZURE_OPENAI_ENDPOINT;
-    const openaiKey = process.env.REACT_APP_AZURE_OPENAI_KEY;
-    const deployment = process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT;
+    // Use fallback values for environment variables
+    const openaiEndpoint = process.env.REACT_APP_AZURE_OPENAI_ENDPOINT || window.ENV?.REACT_APP_AZURE_OPENAI_ENDPOINT;
+    const openaiKey = process.env.REACT_APP_AZURE_OPENAI_KEY || window.ENV?.REACT_APP_AZURE_OPENAI_KEY;
+    const deployment = process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || window.ENV?.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4.1';
+    const apiVersion = process.env.REACT_APP_AZURE_OPENAI_API_VERSION || window.ENV?.REACT_APP_AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
 
-    if (!openaiEndpoint || !openaiKey || !deployment) {
-      setStatus('❌ Azure OpenAI not configured. Check environment variables.');
+    if (!openaiEndpoint || !openaiKey) {
+      setStatus('❌ Azure OpenAI configuration missing. Check environment variables.');
       return;
     }
 
@@ -230,7 +232,7 @@ ${selectedPatient.visits.slice(-3).map(visit =>
       systemPrompt += `Use appropriate medical terminology and maintain professional format.`;
 
       const response = await axios.post(
-        `${openaiEndpoint}openai/deployments/${deployment}/chat/completions?api-version=${process.env.REACT_APP_AZURE_OPENAI_API_VERSION}`,
+        `${openaiEndpoint}openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`,
         {
           messages: [
             {
@@ -263,8 +265,13 @@ Please convert this into structured medical notes following the specified format
       
     } catch (error) {
       console.error('AI generation error:', error);
-      setStatus('❌ Failed to generate notes. Check Azure OpenAI configuration.');
-      setMedicalNotes('Error generating notes: ' + (error.response?.data?.error?.message || error.message));
+      if (error.response?.status === 401) {
+        setStatus('❌ OpenAI authentication failed. Check API key.');
+      } else if (error.response?.status === 404) {
+        setStatus('❌ OpenAI deployment not found. Check deployment name.');
+      } else {
+        setStatus('❌ Failed to generate notes: ' + (error.response?.data?.error?.message || error.message));
+      }
     } finally {
       setIsProcessing(false);
     }
