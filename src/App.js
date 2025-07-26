@@ -25,33 +25,72 @@ function App() {
   });
   const [showPreferences, setShowPreferences] = useState(false);
   
+  // API Settings states
+  const [apiSettings, setApiSettings] = useState({
+    speechKey: '',
+    speechRegion: 'eastus',
+    openaiEndpoint: '',
+    openaiKey: '',
+    openaiDeployment: 'gpt-4.1',
+    openaiApiVersion: '2024-08-01-preview'
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [showApiKeys, setShowApiKeys] = useState(false);
+  
   const recognizerRef = useRef(null);
   const audioConfigRef = useRef(null);
 
-  // Load data from localStorage on app start
+  // Load data from localStorage on app start (with error handling)
   useEffect(() => {
-    const savedPatients = localStorage.getItem('medicalScribePatients');
-    const savedPreferences = localStorage.getItem('medicalScribePreferences');
-    
-    if (savedPatients) {
-      setPatients(JSON.parse(savedPatients));
-    }
-    
-    if (savedPreferences) {
-      setAiPreferences(JSON.parse(savedPreferences));
+    try {
+      const savedPatients = localStorage.getItem('medicalScribePatients');
+      const savedPreferences = localStorage.getItem('medicalScribePreferences');
+      const savedApiSettings = localStorage.getItem('medicalScribeApiSettings');
+      
+      if (savedPatients) {
+        setPatients(JSON.parse(savedPatients));
+      }
+      
+      if (savedPreferences) {
+        setAiPreferences(JSON.parse(savedPreferences));
+      }
+      
+      if (savedApiSettings) {
+        setApiSettings(JSON.parse(savedApiSettings));
+      }
+    } catch (error) {
+      console.warn('LocalStorage not available, using memory storage');
     }
   }, []);
 
-  // Save patients to localStorage
+  // Save patients to localStorage (with error handling)
   const savePatients = (updatedPatients) => {
     setPatients(updatedPatients);
-    localStorage.setItem('medicalScribePatients', JSON.stringify(updatedPatients));
+    try {
+      localStorage.setItem('medicalScribePatients', JSON.stringify(updatedPatients));
+    } catch (error) {
+      console.warn('Cannot save to localStorage');
+    }
   };
 
-  // Save AI preferences
+  // Save AI preferences (with error handling)
   const savePreferences = (prefs) => {
     setAiPreferences(prefs);
-    localStorage.setItem('medicalScribePreferences', JSON.stringify(prefs));
+    try {
+      localStorage.setItem('medicalScribePreferences', JSON.stringify(prefs));
+    } catch (error) {
+      console.warn('Cannot save preferences to localStorage');
+    }
+  };
+
+  // Save API settings (with error handling)
+  const saveApiSettings = (settings) => {
+    setApiSettings(settings);
+    try {
+      localStorage.setItem('medicalScribeApiSettings', JSON.stringify(settings));
+    } catch (error) {
+      console.warn('Cannot save API settings to localStorage');
+    }
   };
 
   // Add new patient
@@ -108,50 +147,31 @@ function App() {
 
   const startRecording = async () => {
     const speechKey = process.env.REACT_APP_AZURE_SPEECH_KEY;
-   const startRecording = async () => {
-  // TEMPORARY: Hard-code your Speech Service key here to test
-  const speechKey = "YOUR_SPEECH_KEY_HERE";  // Paste your actual key here
-  const speechRegion = "eastus";
-  
-  setStatus('🔧 Testing with hard-coded keys...');
-  
-  try {
-    // Request microphone permission first
-    await navigator.mediaDevices.getUserMedia({ audio: true });
+    const speechRegion = process.env.REACT_APP_AZURE_SPEECH_REGION;
     
-    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
-    speechConfig.speechRecognitionLanguage = 'en-US';
-    
-    audioConfigRef.current = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
-    recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
+    if (!speechKey || !speechRegion) {
+      setStatus('❌ Azure Speech keys not configured. Check environment variables.');
+      return;
+    }
 
-    recognizerRef.current.recognizing = (s, e) => {
-      if (e.result.text) {
+    try {
+      setStatus('🔧 Requesting microphone access...');
+      
+      const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion);
+      speechConfig.speechRecognitionLanguage = 'en-US';
+      
+      audioConfigRef.current = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+      recognizerRef.current = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfigRef.current);
+
+      recognizerRef.current.recognizing = (s, e) => {
         setTranscript(prev => prev + ' ' + e.result.text);
-      }
-    };
+      };
 
-    recognizerRef.current.recognized = (s, e) => {
-      if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
-        setTranscript(prev => prev + ' ' + e.result.text);
-      }
-    };
-
-    recognizerRef.current.startContinuousRecognitionAsync(
-      () => {
-        setIsRecording(true);
-        setStatus('🔴 Recording with hard-coded keys - IT WORKS!');
-      },
-      (error) => {
-        console.error('Recognition error:', error);
-        setStatus(`❌ Speech SDK error: ${error}`);
-      }
-    );
-    
-  } catch (error) {
-    setStatus(`❌ Microphone or Speech error: ${error.message}`);
-  }
-};
+      recognizerRef.current.recognized = (s, e) => {
+        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+          setTranscript(prev => prev + ' ' + e.result.text);
+        }
+      };
 
       recognizerRef.current.startContinuousRecognitionAsync(
         () => {
@@ -196,14 +216,15 @@ function App() {
       return;
     }
 
-    // Use fallback values for environment variables
-    const openaiEndpoint = process.env.REACT_APP_AZURE_OPENAI_ENDPOINT || window.ENV?.REACT_APP_AZURE_OPENAI_ENDPOINT;
-    const openaiKey = process.env.REACT_APP_AZURE_OPENAI_KEY || window.ENV?.REACT_APP_AZURE_OPENAI_KEY;
-    const deployment = process.env.REACT_APP_AZURE_OPENAI_DEPLOYMENT || window.ENV?.REACT_APP_AZURE_OPENAI_DEPLOYMENT || 'gpt-4.1';
-    const apiVersion = process.env.REACT_APP_AZURE_OPENAI_API_VERSION || window.ENV?.REACT_APP_AZURE_OPENAI_API_VERSION || '2024-08-01-preview';
+    // Use stored API settings
+    const openaiEndpoint = apiSettings.openaiEndpoint;
+    const openaiKey = apiSettings.openaiKey;
+    const deployment = apiSettings.openaiDeployment;
+    const apiVersion = apiSettings.openaiApiVersion;
 
-    if (!openaiEndpoint || !openaiKey) {
-      setStatus('❌ Azure OpenAI configuration missing. Check environment variables.');
+    if (!openaiEndpoint || !openaiKey || !deployment) {
+      setStatus('❌ Please configure Azure OpenAI settings first (click ⚙️ API Settings)');
+      setShowSettings(true);
       return;
     }
 
@@ -285,9 +306,9 @@ Please convert this into structured medical notes following the specified format
     } catch (error) {
       console.error('AI generation error:', error);
       if (error.response?.status === 401) {
-        setStatus('❌ OpenAI authentication failed. Check API key.');
+        setStatus('❌ OpenAI authentication failed. Check your API key in settings.');
       } else if (error.response?.status === 404) {
-        setStatus('❌ OpenAI deployment not found. Check deployment name.');
+        setStatus('❌ OpenAI deployment not found. Check your deployment name in settings.');
       } else {
         setStatus('❌ Failed to generate notes: ' + (error.response?.data?.error?.message || error.message));
       }
@@ -332,6 +353,14 @@ Please convert this into structured medical notes following the specified format
             style={{backgroundColor: '#9b59b6', color: 'white'}}
           >
             ⚙️ AI Preferences
+          </button>
+          
+          <button 
+            className="btn" 
+            onClick={() => setShowSettings(!showSettings)}
+            style={{backgroundColor: '#e74c3c', color: 'white'}}
+          >
+            🔧 API Settings
           </button>
           
           <select 
@@ -450,6 +479,102 @@ Please convert this into structured medical notes following the specified format
             </button>
             <button 
               onClick={() => setShowPreferences(false)} 
+              className="btn" 
+              style={{backgroundColor: '#95a5a6', color: 'white'}}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* API Settings */}
+        {showSettings && (
+          <div style={{marginTop: '20px', padding: '20px', backgroundColor: '#fff5f5', borderRadius: '8px', border: '2px solid #e74c3c'}}>
+            <h4>🔧 API Configuration</h4>
+            <p style={{fontSize: '14px', color: '#666', marginBottom: '15px'}}>
+              🔒 Your API keys are stored securely in your browser only. They never leave your device.
+            </p>
+            
+            <div style={{marginBottom: '20px'}}>
+              <h5>Azure Speech Service</h5>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 200px', gap: '10px', marginBottom: '10px'}}>
+                <input
+                  type={showApiKeys ? "text" : "password"}
+                  placeholder="Azure Speech Service Key"
+                  value={apiSettings.speechKey}
+                  onChange={(e) => setApiSettings({...apiSettings, speechKey: e.target.value})}
+                  style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                />
+                <select 
+                  value={apiSettings.speechRegion}
+                  onChange={(e) => setApiSettings({...apiSettings, speechRegion: e.target.value})}
+                  style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                >
+                  <option value="eastus">East US</option>
+                  <option value="westus2">West US 2</option>
+                  <option value="centralus">Central US</option>
+                  <option value="westeurope">West Europe</option>
+                </select>
+              </div>
+            </div>
+            
+            <div style={{marginBottom: '20px'}}>
+              <h5>Azure OpenAI Service</h5>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr', gap: '10px', marginBottom: '10px'}}>
+                <input
+                  type="text"
+                  placeholder="https://your-openai-resource.openai.azure.com/"
+                  value={apiSettings.openaiEndpoint}
+                  onChange={(e) => setApiSettings({...apiSettings, openaiEndpoint: e.target.value})}
+                  style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                />
+                <input
+                  type={showApiKeys ? "text" : "password"}
+                  placeholder="Azure OpenAI API Key"
+                  value={apiSettings.openaiKey}
+                  onChange={(e) => setApiSettings({...apiSettings, openaiKey: e.target.value})}
+                  style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                />
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                  <input
+                    type="text"
+                    placeholder="Deployment Name (e.g., gpt-4.1)"
+                    value={apiSettings.openaiDeployment}
+                    onChange={(e) => setApiSettings({...apiSettings, openaiDeployment: e.target.value})}
+                    style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                  />
+                  <input
+                    type="text"
+                    placeholder="API Version"
+                    value={apiSettings.openaiApiVersion}
+                    onChange={(e) => setApiSettings({...apiSettings, openaiApiVersion: e.target.value})}
+                    style={{padding: '8px', borderRadius: '4px', border: '1px solid #ddd'}}
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div style={{marginBottom: '15px'}}>
+              <label>
+                <input 
+                  type="checkbox" 
+                  checked={showApiKeys}
+                  onChange={(e) => setShowApiKeys(e.target.checked)}
+                  style={{marginRight: '8px'}}
+                />
+                👁️ Show API Keys
+              </label>
+            </div>
+            
+            <button 
+              onClick={() => {saveApiSettings(apiSettings); setShowSettings(false); setStatus('✅ API settings saved successfully');}}
+              className="btn" 
+              style={{backgroundColor: '#27ae60', color: 'white', marginRight: '10px'}}
+            >
+              💾 Save API Settings
+            </button>
+            <button 
+              onClick={() => setShowSettings(false)} 
               className="btn" 
               style={{backgroundColor: '#95a5a6', color: 'white'}}
             >
